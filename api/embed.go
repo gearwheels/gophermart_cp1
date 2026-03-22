@@ -1,6 +1,7 @@
-package api
+package openapischema
+
 import "embed"
 
-//go:embed pkg/api/index.html
+//go:embed index.html
 //go:embed openapi.yaml
-var swaggerUI embed.FS
+var SwaggerUI embed.FS
