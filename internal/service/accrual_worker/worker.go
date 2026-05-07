@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/gearwheels/gophermart_cp1/internal/accrual"
@@ -16,6 +17,14 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+// AccrualFetcher описывает минимальный интерфейс для получения данных из
+// системы начисления. Используется вместо конкретного *accrual.Client, чтобы
+// тесты могли подставить заглушку без запуска HTTP-сервера.
+type AccrualFetcher interface {
+	Enabled() bool
+	GetOrder(ctx context.Context, number string) (*accrual.OrderInfo, error)
+}
+
 // Worker опрашивает внешнюю систему начисления по заказам в статусе NEW или
 // PROCESSING и применяет рассчитанные вознаграждения к балансам пользователей.
 // Каждое вознаграждение начисляется ровно один раз благодаря флагу
@@ -23,15 +32,15 @@ import (
 type Worker struct {
 	db     *gorm.DB
 	orders *repopg.OrderRepository
-	client *accrual.Client
+	client AccrualFetcher
 	limit  int
 }
 
 // New создаёт Worker, который выбирает не более limit заказов за одну итерацию
 // опроса. Если limit ≤ 0, используется значение по умолчанию 10. Передача
-// accrual.Client с Enabled() == false создаёт воркер-заглушку (Run вернётся
+// клиента с Enabled() == false создаёт воркер-заглушку (Run вернётся
 // немедленно).
-func New(db *gorm.DB, client *accrual.Client, limit int) *Worker {
+func New(db *gorm.DB, client AccrualFetcher, limit int) *Worker {
 	if limit <= 0 {
 		limit = 10
 	}
@@ -72,7 +81,8 @@ func (w *Worker) Run(ctx context.Context) {
 			continue
 		}
 
-		for _, o := range orders {
+		// slices.Values возвращает iter.Seq[model.Order] — range-over-func (Go 1.23+)
+		for o := range slices.Values(orders) {
 			select {
 			case <-ctx.Done():
 				return
@@ -91,6 +101,11 @@ func (w *Worker) Run(ctx context.Context) {
 					continue
 				}
 
+				slog.Warn("воркер начисления: ошибка запроса к системе начисления",
+					slog.String("номер", o.Number),
+					slog.String("err", err.Error()),
+					slog.Duration("backoff", backoff),
+				)
 				time.Sleep(backoff)
 				if backoff < 5*time.Second {
 					backoff *= 2
@@ -99,7 +114,7 @@ func (w *Worker) Run(ctx context.Context) {
 			}
 			backoff = 500 * time.Millisecond
 
-			_ = w.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if txErr := w.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 				var cur model.Order
 				if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&cur, "number = ?", o.Number).Error; err != nil {
 					return err
@@ -138,7 +153,12 @@ func (w *Worker) Run(ctx context.Context) {
 					"accrual":         cur.Accrual,
 					"accrual_applied": cur.AccrualApplied,
 				}).Error
-			})
+			}); txErr != nil {
+				slog.Error("воркер начисления: ошибка транзакции",
+					slog.String("номер", o.Number),
+					slog.String("err", txErr.Error()),
+				)
+			}
 		}
 	}
 }

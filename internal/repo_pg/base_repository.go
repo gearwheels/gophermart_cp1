@@ -6,6 +6,7 @@ package repopg
 
 import (
 	"context"
+	"iter"
 
 	"gorm.io/gorm"
 )
@@ -59,6 +60,26 @@ func (r *Repository[T]) GetAll(ctx context.Context) ([]T, error) {
 	var entities []T
 	err := r.db.WithContext(ctx).Find(&entities).Error
 	return entities, err
+}
+
+// Seq возвращает итератор iter.Seq[T] по всем записям таблицы (Go 1.23+).
+// Позволяет использовать for-range напрямую без промежуточного среза:
+//
+//	for entity := range repo.Seq(ctx) { ... }
+//
+// При ошибке запроса итерация немедленно завершается без паники.
+func (r *Repository[T]) Seq(ctx context.Context) iter.Seq[T] {
+	return func(yield func(T) bool) {
+		entities, err := r.GetAll(ctx)
+		if err != nil {
+			return
+		}
+		for _, e := range entities {
+			if !yield(e) {
+				return
+			}
+		}
+	}
 }
 
 // FirstWhere – получение первой записи по условию (map или struct).
