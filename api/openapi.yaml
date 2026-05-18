@@ -1,0 +1,381 @@
+openapi: 3.0.0
+info:
+  title: Gophermart Loyalty System API
+  description: API for accumulating and spending loyalty points based on order numbers.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+tags:
+  - name: User
+    description: Registration and authentication
+  - name: Orders
+    description: Order upload and status tracking
+  - name: Balance
+    description: Loyalty points balance operations
+  - name: Withdrawals
+    description: Points withdrawal history
+paths:
+  /api/user/register:
+    post:
+      tags:
+        - User
+      summary: Register a new user
+      operationId: registerUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Credentials'
+      responses:
+        '200':
+          description: User successfully registered and authenticated
+          headers:
+            Set-Cookie:
+              description: Session cookie for authentication
+              schema:
+                type: string
+        '400':
+          description: Invalid request format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Login already taken
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/user/login:
+    post:
+      tags:
+        - User
+      summary: Authenticate user
+      operationId: loginUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Credentials'
+      responses:
+        '200':
+          description: User successfully authenticated
+          headers:
+            Set-Cookie:
+              description: Session cookie for authentication
+              schema:
+                type: string
+        '400':
+          description: Invalid request format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Invalid login/password pair
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/user/orders:
+    post:
+      tags:
+        - Orders
+      summary: Upload an order number for processing
+      operationId: uploadOrder
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: string
+              example: "12345678903"
+              description: Order number (digits only)
+      responses:
+        '200':
+          description: Order number already uploaded by this user
+        '202':
+          description: New order number accepted for processing
+        '400':
+          description: Invalid request format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: User not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Order number already uploaded by another user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Invalid order number format (Luhn check failed)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    get:
+      tags:
+        - Orders
+      summary: Get list of uploaded orders with statuses and accruals
+      operationId: getOrders
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OrderInfo'
+        '204':
+          description: No orders found for user
+        '401':
+          description: User not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/user/balance:
+    get:
+      tags:
+        - Balance
+      summary: Get current loyalty points balance and total withdrawn
+      operationId: getBalance
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Balance'
+        '401':
+          description: User not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/user/balance/withdraw:
+    post:
+      tags:
+        - Balance
+        - Withdrawals
+      summary: Withdraw points to pay for a new order
+      operationId: withdrawPoints
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WithdrawRequest'
+      responses:
+        '200':
+          description: Successful withdrawal
+        '401':
+          description: User not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '402':
+          description: Insufficient points on balance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Invalid order number format (Luhn check failed)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/user/withdrawals:
+    get:
+      tags:
+        - Withdrawals
+      summary: Get withdrawal history
+      operationId: getWithdrawals
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Withdrawal'
+        '204':
+          description: No withdrawals found
+        '401':
+          description: User not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: session
+      description: Session cookie obtained after login/register
+  schemas:
+    Credentials:
+      type: object
+      required:
+        - login
+        - password
+      properties:
+        login:
+          type: string
+          example: "user123"
+        password:
+          type: string
+          format: password
+          example: "secretpassword"
+    OrderInfo:
+      type: object
+      required:
+        - number
+        - status
+        - uploaded_at
+      properties:
+        number:
+          type: string
+          description: Order number
+          example: "9278923470"
+        status:
+          type: string
+          enum: [NEW, PROCESSING, INVALID, PROCESSED]
+          description: Processing status of the order
+        accrual:
+          type: number
+          format: float
+          description: Accrued points (present only for PROCESSED status)
+          example: 500
+        uploaded_at:
+          type: string
+          format: date-time
+          description: Upload timestamp in RFC3339 format
+          example: "2020-12-10T15:15:45+03:00"
+    Balance:
+      type: object
+      required:
+        - current
+        - withdrawn
+      properties:
+        current:
+          type: number
+          format: float
+          description: Current points balance
+          example: 500.5
+        withdrawn:
+          type: number
+          format: float
+          description: Total points withdrawn over history
+          example: 42
+    WithdrawRequest:
+      type: object
+      required:
+        - order
+        - sum
+      properties:
+        order:
+          type: string
+          description: Order number to pay with points
+          example: "2377225624"
+        sum:
+          type: number
+          format: float
+          description: Amount of points to withdraw
+          example: 751
+    Withdrawal:
+      type: object
+      required:
+        - order
+        - sum
+        - processed_at
+      properties:
+        order:
+          type: string
+          description: Order number for which points were withdrawn
+          example: "2377225624"
+        sum:
+          type: number
+          format: float
+          description: Amount withdrawn
+          example: 500
+        processed_at:
+          type: string
+          format: date-time
+          description: Withdrawal timestamp in RFC3339 format
+          example: "2020-12-09T16:09:57+03:00"
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+          description: Error description
+      example:
+        message: "Error description"
